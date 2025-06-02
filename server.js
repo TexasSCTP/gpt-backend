@@ -61,6 +61,10 @@ app.post('/api/chat', async (req, res) => {
     // Step 1: Generate embedding for user message
     const userEmbedding = await embedText(userMessage);
 
+    // 🔍 Log for debugging
+    console.log("User message:", userMessage);
+    console.log("Generated embedding:", userEmbedding.slice(0, 5), "...");
+
     // Step 2: Retrieve relevant documents from Supabase
     const relevantChunks = await querySupabaseEmbeddings(userEmbedding);
 
