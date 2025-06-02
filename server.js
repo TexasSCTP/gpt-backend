@@ -39,15 +39,16 @@ async function embedText(text) {
 async function querySupabaseEmbeddings(embedding) {
   const { data, error } = await supabase.rpc('match_documents', {
     query_embedding: embedding,
-    match_threshold: 0.78,
+    match_threshold: 0.78, // Try lowering to 0.6 if needed
     match_count: 5,
   });
 
   if (error) {
-    console.error('Supabase query error:', error);
+    console.error('❌ Supabase query error:', error);
     return [];
   }
 
+  console.log('✅ Retrieved matching chunks from Supabase:', data); // 👈 log here
   return data.map(doc => doc.content);
 }
 
