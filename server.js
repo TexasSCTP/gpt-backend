@@ -37,11 +37,11 @@ async function embedText(text) {
 
 // Helper function to query Supabase for matching documents
 async function querySupabaseEmbeddings(embedding) {
-  const { data, error } = await supabase.rpc('match_documents', {
-    query_embedding: embedding,
-    match_threshold: 0.78, // Try lowering to 0.6 if needed
-    match_count: 5,
-  });
+const { data, error } = await supabase.rpc('match_documents', {
+  query_embedding: embedding,
+  match_threshold: 0.6,
+  match_count: 5,
+});
 
   if (error) {
     console.error('❌ Supabase query error:', error);
