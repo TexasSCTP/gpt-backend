@@ -1,82 +1,95 @@
 // server.js
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-require('dotenv').config();
 
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
 const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js');
 
+dotenv.config();
+
 const app = express();
-const PORT = process.env.PORT || 10000;
+const port = process.env.PORT || 10000;
 
-// Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
-// Initialize OpenAI
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
+
+// Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Initialize Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Helper function to generate embedding for a given text
+async function embedText(text) {
+  const embeddingResponse = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: text,
+  });
 
-// Chat endpoint
+  return embeddingResponse.data[0].embedding;
+}
+
+// Helper function to query Supabase for matching documents
+async function querySupabaseEmbeddings(embedding) {
+  const { data, error } = await supabase.rpc('match_documents', {
+    query_embedding: embedding,
+    match_threshold: 0.78,
+    match_count: 5,
+  });
+
+  if (error) {
+    console.error('Supabase query error:', error);
+    return [];
+  }
+
+  return data.map(doc => doc.content);
+}
+
+// Chat API endpoint
 app.post('/api/chat', async (req, res) => {
+  const userMessage = req.body.message;
+  if (!userMessage) return res.status(400).json({ error: 'Message is required.' });
+
   try {
-    const userQuery = req.body.message;
+    // Step 1: Generate embedding for user message
+    const userEmbedding = await embedText(userMessage);
 
-    // Get embedding for the user's question
-    const embeddingResponse = await openai.embeddings.create({
-      model: 'text-embedding-ada-002',
-      input: userQuery,
-    });
+    // Step 2: Retrieve relevant documents from Supabase
+    const relevantChunks = await querySupabaseEmbeddings(userEmbedding);
 
-    const [{ embedding }] = embeddingResponse.data;
+    const contextText = relevantChunks.join('\n---\n').slice(0, 3000); // Trim for token safety
 
-    // Call the Supabase function to find similar chunks
-    const { data: matches, error } = await supabase.rpc('match_documents', {
-      query_embedding: embedding,
-      match_threshold: 0.78, // optional, adjust for relevance
-      match_count: 5,
-    });
-
-    if (error) {
-      console.error('Supabase match_documents error:', error);
-      return res.status(500).json({ reply: 'Error fetching context from Supabase.' });
-    }
-
-    const context = matches.map((match) => match.content).join('\n');
-
-    // Call OpenAI with RAG context
+    // Step 3: Generate response using OpenAI's GPT-4o model
     const chatResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `Use the context below to answer the user's question as accurately as possible.\n\n${context}`,
+          content:
+            'You are a helpful assistant answering questions based on the following context from the Texas SCTP Team Handbook:\n\n' +
+            contextText,
         },
         {
           role: 'user',
-          content: userQuery,
+          content: userMessage,
         },
       ],
     });
 
-    const reply = chatResponse.choices[0].message.content;
-    res.json({ reply });
-  } catch (err) {
-    console.error('Chatbot error:', err);
-    res.status(500).json({ reply: 'An error occurred while processing your request.' });
+    const botReply = chatResponse.choices[0].message.content.trim();
+    res.json({ reply: botReply });
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ error: 'Error generating response from OpenAI.' });
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`✅ Server running on port ${port}`);
 });
-
